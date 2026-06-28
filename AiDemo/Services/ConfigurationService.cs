@@ -7,6 +7,7 @@ public class ConfigurationService
 {
     private readonly string _configPath;
     private AppConfig _config = new();
+    private readonly object _lock = new();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -15,19 +16,28 @@ public class ConfigurationService
 
     public ConfigurationService(IWebHostEnvironment env)
     {
+        // Immer im Projektverzeichnis speichern, nicht im bin-Ordner
         _configPath = Path.Combine(env.ContentRootPath, "Data", "config.json");
+        Console.WriteLine($"[ConfigService] Config-Pfad: {_configPath}");
         LoadConfig();
     }
 
-    public AppConfig GetConfig() => _config;
+    public AppConfig GetConfig()
+    {
+        lock (_lock) return _config;
+    }
 
     public event Action? OnConfigChanged;
 
     public void SaveConfig(AppConfig config)
     {
-        _config = config;
-        Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
-        File.WriteAllText(_configPath, JsonSerializer.Serialize(_config, JsonOptions));
+        lock (_lock)
+        {
+            _config = config;
+            Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
+            File.WriteAllText(_configPath, JsonSerializer.Serialize(_config, JsonOptions));
+            Console.WriteLine($"[ConfigService] Config gespeichert: API-Key={(!string.IsNullOrEmpty(config.ApiKey) ? "gesetzt" : "leer")}, Model={config.Model}");
+        }
         OnConfigChanged?.Invoke();
     }
 
@@ -77,9 +87,11 @@ public class ConfigurationService
         {
             var json = File.ReadAllText(_configPath);
             _config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+            Console.WriteLine($"[ConfigService] Config geladen: API-Key={(!string.IsNullOrEmpty(_config.ApiKey) ? "gesetzt" : "leer")}, Model={_config.Model}");
         }
         else
         {
+            Console.WriteLine($"[ConfigService] Keine config.json gefunden, erstelle Default...");
             _config = CreateDefaultConfig();
             SaveConfig(_config);
         }
