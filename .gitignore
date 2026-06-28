@@ -1,0 +1,23 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+
+## IDE
+.idea/
+.vs/
+*.swp
+*~
+
+## App data
+AiDemo/Data/config.json
+AiDemo/wwwroot/generated/
+
+## OS
+.DS_Store
+Thumbs.db

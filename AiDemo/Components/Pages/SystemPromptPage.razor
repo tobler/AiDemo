@@ -1,0 +1,174 @@
+@page "/systemprompt"
+@using AiDemo.Models
+@using AiDemo.Services
+@inject ConfigurationService ConfigService
+@rendermode InteractiveServer
+
+<PageTitle>Systemprompt</PageTitle>
+
+<div class="container-fluid">
+    <h3 class="mb-4"><span class="bi bi-gear me-2"></span>Systemprompt & Einstellungen</h3>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- API Key -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0">🔑 API-Konfiguration</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Anthropic API-Key</label>
+                        <div class="input-group">
+                            <input type="@(_showApiKey ? "text" : "password")" class="form-control"
+                                   @bind="_apiKey" placeholder="sk-ant-..." />
+                            <button class="btn btn-outline-secondary" @onclick="() => _showApiKey = !_showApiKey">
+                                @(_showApiKey ? "🙈" : "👁️")
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Modell</label>
+                        <select class="form-select" @bind="_model">
+                            <option value="claude-sonnet-4-6-20250610">Claude Sonnet 4.6</option>
+                            <option value="claude-opus-4-6-20250610">Claude Opus 4.6</option>
+                            <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+                            <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet (Latest)</option>
+                            <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku (Latest)</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" @onclick="SaveApiSettings">
+                        Speichern
+                    </button>
+                    @if (_apiSaved)
+                    {
+                        <span class="text-success ms-2">✓ Gespeichert</span>
+                    }
+                </div>
+            </div>
+
+            <!-- System Prompt -->
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">📋 Systemprompt</h5>
+                    <div>
+                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="LoadDefaultPrompt">
+                            Standard laden
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <textarea class="form-control font-monospace" @bind="_systemPrompt" rows="15"
+                              placeholder="Systemprompt eingeben..."></textarea>
+                    <div class="mt-2 d-flex justify-content-between align-items-center">
+                        <small class="text-muted">@_systemPrompt.Length Zeichen</small>
+                        <button class="btn btn-primary" @onclick="SaveSystemPrompt">
+                            Systemprompt speichern
+                        </button>
+                    </div>
+                    @if (_promptSaved)
+                    {
+                        <div class="alert alert-success mt-2 py-1">✓ Systemprompt wurde gespeichert.</div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <!-- Preview -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">👁️ Vorschau</h5>
+                </div>
+                <div class="card-body">
+                    <div class="prompt-preview">
+                        @if (!string.IsNullOrWhiteSpace(_systemPrompt))
+                        {
+                            @((MarkupString)FormatPreview(_systemPrompt))
+                        }
+                        else
+                        {
+                            <p class="text-muted">Kein Systemprompt definiert.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Info -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5 class="mb-0">ℹ️ Tipps</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled mb-0">
+                        <li class="mb-2"><strong>Rolle definieren:</strong> "Du bist der KI-Assistent der Firma..."</li>
+                        <li class="mb-2"><strong>Kontext geben:</strong> Beschreibe die Firma und ihre Leistungen</li>
+                        <li class="mb-2"><strong>Tools referenzieren:</strong> Erkläre wann welche Tools verwendet werden sollen</li>
+                        <li class="mb-2"><strong>Ausgabeformat:</strong> Definiere das gewünschte Antwortformat</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _apiKey = "";
+    private string _model = "claude-sonnet-4-20250514";
+    private string _systemPrompt = "";
+    private bool _showApiKey;
+    private bool _apiSaved;
+    private bool _promptSaved;
+
+    protected override void OnInitialized()
+    {
+        var config = ConfigService.GetConfig();
+        _apiKey = config.ApiKey;
+        _model = config.Model;
+        _systemPrompt = config.SystemPrompt;
+    }
+
+    private async Task SaveApiSettings()
+    {
+        ConfigService.UpdateApiKey(_apiKey);
+        ConfigService.UpdateModel(_model);
+        _apiSaved = true;
+        StateHasChanged();
+        await Task.Delay(2000);
+        _apiSaved = false;
+        StateHasChanged();
+    }
+
+    private async Task SaveSystemPrompt()
+    {
+        ConfigService.UpdateSystemPrompt(_systemPrompt);
+        _promptSaved = true;
+        StateHasChanged();
+        await Task.Delay(2000);
+        _promptSaved = false;
+        StateHasChanged();
+    }
+
+    private void LoadDefaultPrompt()
+    {
+        _systemPrompt = """
+            Du bist der KI-Assistent der Firma Musterbau GmbH.
+            Die Firma Musterbau GmbH ist ein Handwerksbetrieb, der sich auf Malerarbeiten,
+            Bodenbeläge und Trockenbau spezialisiert hat.
+
+            Wenn Du eine Anfrage nach einem Angebot oder Auftrag bekommst:
+            1. Benutze den Tool "berechne_aufmass" um die Flächen und Mengen zu berechnen
+            2. Benutze den Tool "kalkuliere_preis" um die Preise zu kalkulieren
+            3. Erstelle das Angebot als PDF, DOCX oder Excel-Datei mit den entsprechenden Tools
+
+            Sei freundlich und professionell. Antworte auf Deutsch.
+            """;
+    }
+
+    private static string FormatPreview(string text)
+    {
+        var html = System.Web.HttpUtility.HtmlEncode(text);
+        html = html.Replace("\n", "<br/>");
+        return $"<div class='small'>{html}</div>";
+    }
+}

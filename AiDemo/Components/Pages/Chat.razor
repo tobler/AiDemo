@@ -1,0 +1,217 @@
+@page "/"
+@page "/chat"
+@using AiDemo.Models
+@using AiDemo.Services
+@inject AnthropicChatService ChatService
+@inject ConfigurationService ConfigService
+@rendermode InteractiveServer
+
+<PageTitle>KI Chat</PageTitle>
+
+<div class="chat-container">
+    <div class="chat-header">
+        <h4><span class="bi bi-chat-dots me-2"></span>KI-Assistent</h4>
+        <span class="badge bg-info">@ConfigService.GetConfig().Model</span>
+    </div>
+
+    <div class="chat-messages" @ref="chatMessagesDiv">
+        @if (_messages.Count == 0)
+        {
+            <div class="empty-state">
+                <div class="empty-icon">🤖</div>
+                <h5>Willkommen beim KI-Assistenten</h5>
+                <p class="text-muted">Stellen Sie eine Frage oder geben Sie einen Auftrag ein.</p>
+                <div class="example-prompts">
+                    <button class="btn btn-outline-primary btn-sm m-1" @onclick="() => SetPrompt(Example1)">
+                        Angebot Malerarbeiten
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm m-1" @onclick="() => SetPrompt(Example2)">
+                        Angebot Bodenbelag
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm m-1" @onclick="() => SetPrompt(Example3)">
+                        Aufmaß berechnen
+                    </button>
+                </div>
+            </div>
+        }
+
+        @foreach (var message in _messages)
+        {
+            <div class="message @(message.Role == "user" ? "message-user" : "message-assistant")">
+                <div class="message-avatar">
+                    @(message.Role == "user" ? "👤" : "🤖")
+                </div>
+                <div class="message-content">
+                    <div class="message-text">
+                        @((MarkupString)FormatContent(message.Content))
+                    </div>
+
+                    @if (message.ToolCalls?.Count > 0)
+                    {
+                        <div class="tool-calls mt-2">
+                            <details>
+                                <summary class="text-info">
+                                    <small>🔧 @message.ToolCalls.Count Tool(s) verwendet</small>
+                                </summary>
+                                @foreach (var tool in message.ToolCalls)
+                                {
+                                    <div class="tool-call-detail">
+                                        <strong>@tool.ToolName</strong>
+                                        <div class="tool-io">
+                                            <div><small class="text-muted">Input:</small> <code>@tool.Input</code></div>
+                                            <div><small class="text-muted">Output:</small> <code>@TruncateOutput(tool.Output)</code></div>
+                                        </div>
+                                    </div>
+                                }
+                            </details>
+                        </div>
+                    }
+
+                    @if (message.Documents?.Count > 0)
+                    {
+                        <div class="documents mt-2">
+                            @foreach (var doc in message.Documents)
+                            {
+                                <a href="@doc.DownloadUrl" target="_blank" class="btn btn-sm btn-success me-1 mb-1" download="@doc.FileName">
+                                    @GetDocIcon(doc.FileType) @doc.FileName
+                                </a>
+                            }
+                        </div>
+                    }
+
+                    <div class="message-time">
+                        <small class="text-muted">@message.Timestamp.ToString("HH:mm")</small>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_isLoading)
+        {
+            <div class="message message-assistant">
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="typing-indicator">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="chat-input-area">
+        <div class="input-group">
+            <textarea class="form-control" @bind="_currentMessage" @bind:event="oninput"
+                      @onkeydown="HandleKeyDown"
+                      placeholder="Nachricht eingeben... (Enter zum Senden, Shift+Enter für neue Zeile)"
+                      rows="2" disabled="@_isLoading"></textarea>
+            <button class="btn btn-primary" @onclick="SendMessage" disabled="@(_isLoading || string.IsNullOrWhiteSpace(_currentMessage))">
+                @if (_isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                }
+                else
+                {
+                    <span>Senden</span>
+                }
+            </button>
+        </div>
+        @if (_messages.Count > 0)
+        {
+            <button class="btn btn-outline-secondary btn-sm mt-1" @onclick="ClearChat">
+                Chat leeren
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    private string _currentMessage = "";
+    private bool _isLoading;
+    private readonly List<ChatMessage> _messages = [];
+    private ElementReference chatMessagesDiv;
+
+    private const string Example1 = "Ich hätte gerne ein Angebot über Malerarbeiten für ein Wohnzimmer. Der Raum ist 5m lang, 4m breit und 2,50m hoch. Es gibt 2 Fenster (1,2m x 1,4m) und eine Tür (0,9m x 2,1m). Bitte erstelle das Angebot als PDF.";
+    private const string Example2 = "Bitte erstelle mir ein Angebot für Laminatboden in Premium-Qualität. Der Raum ist 6m x 4,5m. Bitte als Excel-Tabelle.";
+    private const string Example3 = "Berechne das Aufmaß für einen Raum: 7m x 5m x 2,80m mit 3 Fenstern (1,0m x 1,2m) und 2 Türen (0,9m x 2,1m).";
+
+    private void SetPrompt(string prompt)
+    {
+        _currentMessage = prompt;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_currentMessage) || _isLoading)
+            return;
+
+        var userMsg = _currentMessage.Trim();
+        _currentMessage = "";
+
+        _messages.Add(new ChatMessage
+        {
+            Role = "user",
+            Content = userMsg
+        });
+
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var response = await ChatService.SendMessageAsync(_messages.SkipLast(1).ToList(), userMsg);
+            _messages.Add(response);
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(new ChatMessage
+            {
+                Role = "assistant",
+                Content = $"Fehler: {ex.Message}"
+            });
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ClearChat()
+    {
+        _messages.Clear();
+    }
+
+    private static string FormatContent(string content)
+    {
+        if (string.IsNullOrEmpty(content)) return "";
+        // Basic markdown-like formatting
+        var html = System.Web.HttpUtility.HtmlEncode(content);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\*\*(.+?)\*\*", "<strong>$1</strong>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\*(.+?)\*", "<em>$1</em>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"`(.+?)`", "<code>$1</code>");
+        html = html.Replace("\n", "<br/>");
+        return html;
+    }
+
+    private static string TruncateOutput(string output)
+    {
+        return output.Length > 200 ? output[..200] + "..." : output;
+    }
+
+    private static string GetDocIcon(string fileType) => fileType switch
+    {
+        "pdf" => "📄",
+        "docx" => "📝",
+        "xlsx" => "📊",
+        _ => "📎"
+    };
+}
